@@ -84,6 +84,9 @@ non-existent reference, so the nested group must exist first: fs-groups applies 
 * Live, once, on 2026-11-06: `docker.io/kanidm/server:1.12.0` under podman, bound to 127.0.0.1, own throwaway CA, bootstrapped with
   `kanidmd recover-account idm_admin`, a service account in `idm_group_admins` with a read-write API token. The ignored test
   `tests/live.rs` (create, nested, read back, idempotent apply, hand edit of an own member healed, list, remove, re-create after delete) passed.
+* Live again on 2026-11-16, locally only (podman, `docker.io/kanidm/server:1.12.0`, 127.0.0.1, throwaway CA, no real server): the same test
+  with the new step "a directory that does not know the account reports it as a finding and leaves it a member" passed. Kanidm 1.12.1 not
+  run (image not present locally).
   Not covered live: `sync_to` end to end, people lists with several accounts, large groups, token expiry.
 
 ## Open points

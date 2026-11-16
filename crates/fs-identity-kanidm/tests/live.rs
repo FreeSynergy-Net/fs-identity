@@ -37,7 +37,7 @@ async fn a_real_kanidm_mirrors_heals_and_cleans_up() {
     let person = "https://example.org/people/live".to_string();
     let people = StaticPersonMap::new().with(person.clone(), account.clone());
     let directory = KanidmDirectory::new(seam.clone(), Arc::new(people));
-    let client = KanidmClient::new(seam);
+    let client = KanidmClient::new(seam.clone());
 
     let (child, parent) = (ObjectId::new(), ObjectId::new());
     let child_g = DirectoryGroup {
@@ -82,6 +82,21 @@ async fn a_real_kanidm_mirrors_heals_and_cleans_up() {
     assert_ne!(directory.read(child).await.unwrap().unwrap(), child_g);
     directory.apply(&child_g).await.unwrap();
     assert_eq!(directory.read(child).await.unwrap().unwrap(), child_g);
+
+    // an account nobody mapped: a directory whose map does not know it reports it and leaves it (ADR 0082)
+    let blind = KanidmDirectory::new(seam.clone(), Arc::new(StaticPersonMap::new()));
+    let empty = DirectoryGroup {
+        members: vec![],
+        ..child_g.clone()
+    };
+    let report = blind.apply_report(&empty, false).await.unwrap();
+    assert_eq!(report.findings.len(), 1, "{report:?}");
+    assert_eq!(report.findings[0].group, child);
+    assert_eq!(
+        directory.read(child).await.unwrap().unwrap(),
+        child_g,
+        "still a member"
+    );
 
     directory.remove(parent).await.unwrap();
     directory.remove(child).await.unwrap();
