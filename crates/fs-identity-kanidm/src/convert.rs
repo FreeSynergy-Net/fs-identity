@@ -33,6 +33,10 @@ pub fn to_attrs(
 ) -> Result<BTreeMap<String, Vec<String>>> {
     let (mut accounts, mut missing) = (vec![], vec![]);
     for person in &group.members {
+        if let Some(raw) = person.strip_prefix(FOREIGN) {
+            accounts.push(raw.to_string()); // as read from Kanidm: passed through unchanged
+            continue;
+        }
         match people.account_of(person) {
             Some(a) => accounts.push(a),
             None => missing.push(person.clone()),
@@ -49,11 +53,53 @@ pub fn to_attrs(
     Ok(attrs)
 }
 
-/// The member values to send for a group (the same as in [`to_attrs`]).
-pub fn member_values(group: &DirectoryGroup, people: &dyn PersonMap) -> Result<Vec<String>> {
-    Ok(to_attrs(group, people)?
-        .remove("member")
-        .unwrap_or_default())
+/// What to add to and remove from `member` so that our own members and nested groups match `wanted`.
+/// Members nobody mapped are in neither list, so a request never names a value that is not ours.
+/// Fails, before anything is written, if a wanted person has no account.
+pub fn member_delta(
+    entry: &Entry,
+    wanted: &DirectoryGroup,
+    people: &dyn PersonMap,
+) -> Result<(Vec<String>, Vec<String>)> {
+    let mut add = vec![];
+    let (mut have_people, mut have_nested) = (vec![], vec![]);
+    let mut remove = vec![];
+    for value in entry.values("member") {
+        if let Some(child) = group_id(value) {
+            if wanted.nested.contains(&child) {
+                have_nested.push(child);
+            } else {
+                remove.push(value.clone());
+            }
+        } else if let Some(person) = people.person_of(value) {
+            if wanted.members.contains(&person) {
+                have_people.push(person);
+            } else {
+                remove.push(value.clone());
+            }
+        }
+    }
+    let mut missing = vec![];
+    for person in wanted.members.iter().filter(|m| !m.starts_with(FOREIGN)) {
+        if have_people.contains(person) {
+            continue;
+        }
+        match people.account_of(person) {
+            Some(a) => add.push(a),
+            None => missing.push(person.clone()),
+        }
+    }
+    if !missing.is_empty() {
+        return Err(Error::UnmappedPeople(missing));
+    }
+    add.extend(
+        wanted
+            .nested
+            .iter()
+            .filter(|id| !have_nested.contains(id))
+            .map(|id| group_name(*id)),
+    );
+    Ok((add, remove))
 }
 
 /// Read a Kanidm entry as a directory group; `None` if it is not one of ours (name without our prefix).

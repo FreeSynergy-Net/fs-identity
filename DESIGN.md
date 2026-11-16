@@ -95,8 +95,9 @@ non-existent reference, so the nested group must exist first: fs-groups applies 
 * Handing control back when Kanidm gains a feature (ADR 0047): invitations (kanidm#4659), finer delegation (kanidm#4641), custom fields (kanidm#3493).
 * A contract test in CI against a pinned container (research note 1.5, point 5) is not set up; the live test is run by hand.
 * `kanidm_client` is not used; sign-in and credential flows are not built.
+* Findings are lost on the main path: `GroupRepo::sync_to` calls `GroupDirectory::apply`, which returns nothing, so the report shows the group as `updated` on every run and `is_quiet()` never becomes true. Fix needs an extension in fs-groups-core (foreign members in `DirectoryGroup`, findings from `apply`, a field in `SyncReport`), a new version there and a raised pin here. Until then only `apply_report` shows the findings.
 
 ## Crates
 
-`fs-groups-core` (git tag v0.1.0), `fs-objects` (v0.2.0), `fs-interfaces` (v0.3.0), `reqwest` 0.13 with rustls (MIT OR Apache-2.0),
+`fs-groups-core`, `fs-objects` and `fs-interfaces` (git tags, pinned in `Cargo.toml`, currently v0.0.1), `reqwest` 0.13 with rustls (MIT OR Apache-2.0),
 `serde`, `serde_json`, `thiserror`, `async-trait`. No Kanidm crate, no `kanidm_proto`: Kanidm (MPL-2.0) is only called over the network.

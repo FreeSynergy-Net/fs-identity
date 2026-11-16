@@ -28,10 +28,11 @@ impl StaticPersonMap {
         Self::default()
     }
 
-    /// Add one person and their account.
+    /// Add one person and their account. The account is trimmed and lower-cased (Kanidm answers SPNs
+    /// in lower case), and so is the member string looked up in `person_of`.
     #[must_use]
     pub fn with(mut self, person: impl Into<String>, account: impl Into<String>) -> Self {
-        let (person, account) = (person.into(), account.into());
+        let (person, account) = (person.into(), account.into().trim().to_lowercase());
         self.backward.insert(account.clone(), person.clone());
         self.forward.insert(person, account);
         self
@@ -44,6 +45,6 @@ impl PersonMap for StaticPersonMap {
     }
 
     fn person_of(&self, member: &str) -> Option<String> {
-        self.backward.get(member).cloned()
+        self.backward.get(&member.trim().to_lowercase()).cloned()
     }
 }

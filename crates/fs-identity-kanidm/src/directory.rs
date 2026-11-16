@@ -2,7 +2,9 @@
 //!
 //! Pattern: Adapter (+ Strategy) — the groups core says what should be; this brings Kanidm there over
 //! REST v1 through the HTTP seam. `apply` reads first and writes only what differs, so a repeat is
-//! quiet and a hand edit of our own members in Kanidm is put back; members nobody mapped are reported, never removed. Cycles are refused in fs-groups, not here.
+//! quiet and a hand edit of our own members in Kanidm is put back; members nobody mapped are reported,
+//! never removed. Members are written as changes only (add/remove), never as a replacement of the
+//! whole list. Cycles are refused in fs-groups, not here.
 
 use std::sync::Arc;
 
@@ -12,7 +14,7 @@ use fs_interfaces::Capabilities;
 use fs_objects::ObjectId;
 
 use crate::client::KanidmClient;
-use crate::convert::{FOREIGN, foreign_accounts, from_entry, member_values, to_attrs};
+use crate::convert::{FOREIGN, foreign_accounts, from_entry, member_delta, to_attrs};
 use crate::http::HttpSeam;
 use crate::naming::{PREFIX, group_name};
 use crate::people::PersonMap;
@@ -38,9 +40,8 @@ impl KanidmDirectory {
 impl KanidmDirectory {
     /// Bring one group to the wanted state and say what was done and what was left alone.
     ///
-    /// Only our own (mapped) members and nested groups are replaced. Members Kanidm has that nobody
-    /// mapped are never removed or changed: they are carried along in the write and returned as
-    /// findings (ADR 0035 addendum, ADR 0082). With `dry_run`, nothing is written; the report shows
+    /// Only our own (mapped) members and nested groups are added or removed. Members Kanidm has that
+    /// nobody mapped are never named in a request and are returned as findings (ADR 0035 addendum, ADR 0082). With `dry_run`, nothing is written; the report shows
     /// what would be.
     pub async fn apply_report(&self, group: &DirectoryGroup, dry_run: bool) -> Result<Report> {
         let wanted = group.clone().normalised();
@@ -77,12 +78,22 @@ impl KanidmDirectory {
         // Compare only what is ours; unmapped members do not count as a difference.
         let mut own = current.clone();
         own.members.retain(|m| !m.starts_with(FOREIGN));
-        if own.members != wanted.members || own.nested != wanted.nested {
+        let mut want_own = wanted.clone();
+        want_own.members.retain(|m| !m.starts_with(FOREIGN));
+        if own.members != want_own.members || own.nested != want_own.nested {
             report.changes.push(Change::SetMembers);
             if !dry_run {
-                let mut members = member_values(&wanted, self.people.as_ref())?;
-                members.extend(foreign); // PUT replaces the attribute: send the unmapped ones back unchanged
-                self.client.set_attr(&name, "member", &members).await?;
+                // Only changes are sent (POST adds, DELETE removes): a value we never read as ours is
+                // never in a request, so a concurrent edit by an admin is not overwritten.
+                let (add, remove) = member_delta(&entry, &want_own, self.people.as_ref())?;
+                if !remove.is_empty() {
+                    self.client
+                        .remove_attr(&name, "member", Some(&remove))
+                        .await?;
+                }
+                if !add.is_empty() {
+                    self.client.add_attr(&name, "member", &add).await?;
+                }
             }
         }
         Ok(report.finish())
