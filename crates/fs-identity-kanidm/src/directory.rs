@@ -2,7 +2,7 @@
 //!
 //! Pattern: Adapter (+ Strategy) — the groups core says what should be; this brings Kanidm there over
 //! REST v1 through the HTTP seam. `apply` reads first and writes only what differs, so a repeat is
-//! quiet and a hand edit in Kanidm is put back. Cycles are refused in fs-groups, not here.
+//! quiet and a hand edit of our own members in Kanidm is put back; members nobody mapped are reported, never removed. Cycles are refused in fs-groups, not here.
 
 use std::sync::Arc;
 
@@ -12,10 +12,11 @@ use fs_interfaces::Capabilities;
 use fs_objects::ObjectId;
 
 use crate::client::KanidmClient;
-use crate::convert::{from_entry, member_values, to_attrs};
+use crate::convert::{FOREIGN, foreign_accounts, from_entry, member_values, to_attrs};
 use crate::http::HttpSeam;
 use crate::naming::{PREFIX, group_name};
 use crate::people::PersonMap;
+use crate::report::{Change, Finding, Reason, Report};
 
 /// Kanidm as a directory that mirrors our groups.
 #[derive(Clone)]
@@ -31,6 +32,60 @@ impl KanidmDirectory {
             client: KanidmClient::new(seam),
             people,
         }
+    }
+}
+
+impl KanidmDirectory {
+    /// Bring one group to the wanted state and say what was done and what was left alone.
+    ///
+    /// Only our own (mapped) members and nested groups are replaced. Members Kanidm has that nobody
+    /// mapped are never removed or changed: they are carried along in the write and returned as
+    /// findings (ADR 0035 addendum, ADR 0082). With `dry_run`, nothing is written; the report shows
+    /// what would be.
+    pub async fn apply_report(&self, group: &DirectoryGroup, dry_run: bool) -> Result<Report> {
+        let wanted = group.clone().normalised();
+        let name = group_name(wanted.id);
+        let attrs = to_attrs(&wanted, self.people.as_ref())?; // fails before any write
+        let mut report = Report::default();
+        let Some(entry) = self.client.group(&name).await? else {
+            report.changes.push(Change::Create);
+            if !dry_run {
+                self.client.create_group(&attrs).await?;
+            }
+            return Ok(report);
+        };
+        let Some(current) = from_entry(&entry, self.people.as_ref()) else {
+            return Ok(report); // cannot happen: the name is ours; nothing to compare
+        };
+        let foreign = foreign_accounts(&current);
+        report.findings = foreign
+            .iter()
+            .map(|account| Finding {
+                group: wanted.id,
+                account: account.clone(),
+                reason: Reason::NotMapped,
+            })
+            .collect();
+        if current.name != wanted.name {
+            report.changes.push(Change::SetDescription);
+            if !dry_run {
+                self.client
+                    .set_attr(&name, "description", std::slice::from_ref(&wanted.name))
+                    .await?;
+            }
+        }
+        // Compare only what is ours; unmapped members do not count as a difference.
+        let mut own = current.clone();
+        own.members.retain(|m| !m.starts_with(FOREIGN));
+        if own.members != wanted.members || own.nested != wanted.nested {
+            report.changes.push(Change::SetMembers);
+            if !dry_run {
+                let mut members = member_values(&wanted, self.people.as_ref())?;
+                members.extend(foreign); // PUT replaces the attribute: send the unmapped ones back unchanged
+                self.client.set_attr(&name, "member", &members).await?;
+            }
+        }
+        Ok(report.finish())
     }
 }
 
@@ -64,24 +119,7 @@ impl GroupDirectory for KanidmDirectory {
     }
 
     async fn apply(&self, group: &DirectoryGroup) -> Result<()> {
-        let wanted = group.clone().normalised();
-        let name = group_name(wanted.id);
-        let attrs = to_attrs(&wanted, self.people.as_ref())?; // fails before any write
-        let Some(entry) = self.client.group(&name).await? else {
-            return Ok(self.client.create_group(&attrs).await?);
-        };
-        let Some(current) = from_entry(&entry, self.people.as_ref()) else {
-            return Ok(()); // cannot happen: the name is ours; nothing to compare
-        };
-        if current.name != wanted.name {
-            self.client
-                .set_attr(&name, "description", std::slice::from_ref(&wanted.name))
-                .await?;
-        }
-        if current.members != wanted.members || current.nested != wanted.nested {
-            let members = member_values(&wanted, self.people.as_ref())?;
-            self.client.set_attr(&name, "member", &members).await?;
-        }
+        self.apply_report(group, false).await?;
         Ok(())
     }
 

@@ -34,7 +34,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         members: vec![ada],
         nested: vec![],
     };
-    directory.apply(&group).await?;
+    let report = directory.apply_report(&group, false).await?;
+    for finding in &report.findings {
+        println!("finding: {finding}");
+    }
     println!("mirrored: {:?}", directory.read(group.id).await?);
     directory.remove(group.id).await?;
     Ok(())

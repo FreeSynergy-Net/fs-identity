@@ -26,7 +26,9 @@ pub struct FakeKanidm {
 impl FakeKanidm {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
-            accounts: ["ada", "bo", "cy"].map(|n| format!("{n}@{REALM}")).to_vec(),
+            accounts: ["ada", "bo", "cy", "stranger", "zed"]
+                .map(|n| format!("{n}@{REALM}"))
+                .to_vec(),
             ..Self::default()
         })
     }

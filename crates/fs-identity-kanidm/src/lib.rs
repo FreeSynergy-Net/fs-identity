@@ -23,6 +23,7 @@ mod error;
 mod http;
 pub mod naming;
 mod people;
+mod report;
 
 pub use client::{Entry, KanidmClient};
 pub use convert::FOREIGN;
@@ -30,3 +31,4 @@ pub use directory::KanidmDirectory;
 pub use error::{Error, Result};
 pub use http::{HttpSeam, Method, Request, ReqwestSeam, Response, Token};
 pub use people::{PersonMap, StaticPersonMap};
+pub use report::{Change, Finding, Reason, Report};

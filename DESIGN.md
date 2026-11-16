@@ -63,8 +63,12 @@ non-existent reference, so the nested group must exist first: fs-groups applies 
 * **People are mapped by the caller** (`PersonMap`); give the SPN, since Kanidm answers with SPNs. A person without an account fails
   the whole `apply` of that group before anything is written (error names them); `sync_to` reports it and goes on with other groups.
   The alternative (silently skipping them) would show as a difference at every run.
-* **A member Kanidm has that nobody mapped** is read as `kanidm:<value>`, so it differs from the wanted state and the next `apply` removes it
-  (fs-groups is the point of truth for groups it mirrors).
+* **A member Kanidm has that nobody mapped** (no person or role for the account) is read as `kanidm:<value>`. `apply` does **not** remove it
+  (this replaces the earlier rule "the next `apply` removes it"; ADR 0035 addendum, ADR 0082 "report instead of overwrite"). The comparison
+  ignores such members. When our own members change, the write (`PUT` replaces the whole attribute) carries them along unchanged. They are
+  returned as `Finding { group, account, reason: NotMapped }` in the `Report` of `KanidmDirectory::apply_report(group, dry_run)`, sorted by
+  group and account, and printed by the example. `dry_run` writes nothing and shows the changes and findings that would result. The trait
+  method `GroupDirectory::apply` (fixed by fs-groups) returns `()`, so it reports nothing; use `apply_report` when findings matter.
 * **Roles are not mirrored.** `DirectoryGroup` has no role; a person is a plain member. The research note's idea of one Kanidm group per
   `(group, role)` would need the contract to say so.
 * **Delete goes to Kanidm's recycle bin first.** Creating the same name again afterwards worked against 1.12.0 (live test).
@@ -79,7 +83,7 @@ non-existent reference, so the nested group must exist first: fs-groups applies 
   409 on a duplicate name, the end-to-end path `GroupRepo::sync_to` -> `KanidmDirectory`).
 * Live, once, on 2026-11-06: `docker.io/kanidm/server:1.12.0` under podman, bound to 127.0.0.1, own throwaway CA, bootstrapped with
   `kanidmd recover-account idm_admin`, a service account in `idm_group_admins` with a read-write API token. The ignored test
-  `tests/live.rs` (create, nested, read back, idempotent apply, hand edit healed, list, remove, re-create after delete) passed.
+  `tests/live.rs` (create, nested, read back, idempotent apply, hand edit of an own member healed, list, remove, re-create after delete) passed.
   Not covered live: `sync_to` end to end, people lists with several accounts, large groups, token expiry.
 
 ## Open points

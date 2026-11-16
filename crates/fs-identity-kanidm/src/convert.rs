@@ -13,8 +13,18 @@ use crate::naming::{group_id, group_name};
 use crate::people::PersonMap;
 
 /// What `read` returns for a member Kanidm has that we cannot map to a person: the raw value after
-/// this prefix. It never equals a wanted member, so the difference is seen and healed.
+/// this prefix. `read` shows it; `apply` reports it and leaves it alone (ADR 0035 addendum).
 pub const FOREIGN: &str = "kanidm:";
+
+/// The raw values (as Kanidm answered them) of the members of a read group that nobody mapped.
+pub fn foreign_accounts(group: &DirectoryGroup) -> Vec<String> {
+    group
+        .members
+        .iter()
+        .filter_map(|m| m.strip_prefix(FOREIGN))
+        .map(str::to_string)
+        .collect()
+}
 
 /// The attributes to send for a group. Fails, before anything is written, if a person has no account.
 pub fn to_attrs(

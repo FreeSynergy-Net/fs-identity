@@ -4,7 +4,7 @@ mod common;
 
 use common::{FakeKanidm, dg, person, read_all};
 use fs_groups_core::{Error, GroupDirectory};
-use fs_identity_kanidm::{FOREIGN, naming::group_name};
+use fs_identity_kanidm::naming::group_name;
 use fs_objects::ObjectId;
 
 #[tokio::test]
@@ -102,25 +102,6 @@ async fn a_hand_edit_in_kanidm_is_seen_and_put_back() {
     );
     d.apply(&want).await.unwrap();
     assert_eq!(d.read(id).await.unwrap().unwrap(), want);
-}
-
-#[tokio::test]
-async fn an_account_nobody_mapped_shows_up_as_foreign_and_is_removed() {
-    let k = FakeKanidm::new();
-    let d = k.directory();
-    let id = ObjectId::new();
-    let want = dg(id, "Club", &["ada"], &[]);
-    d.apply(&want).await.unwrap();
-    k.groups.lock().unwrap()[0]
-        .members
-        .push("stranger@idm.test".into());
-    let seen = d.read(id).await.unwrap().unwrap();
-    assert!(
-        seen.members
-            .contains(&format!("{FOREIGN}stranger@idm.test"))
-    );
-    d.apply(&want).await.unwrap();
-    assert_eq!(k.stored(&group_name(id)).unwrap().members, ["ada@idm.test"]);
 }
 
 #[tokio::test]
